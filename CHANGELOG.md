@@ -1,3 +1,28 @@
+ 0.2.13
+
+- #135 Shorten coverage message on formatter
+
+
+- #134 Wrap file creation in try/catch
+
+
+
+- #133 Write down to file when using the formatter
+
+
+- #130 Split uploader from formatter
+
+- #124 Ruby 3.0 support
+- #125 open simplecov requirement to 0.21.x
+
+- #118 Include codecov/version in the gem
+
+
+- #107 Add EditorConfig file
+- #113 Return version constant, don't duplicate version value
+- #117 Update simplecov dependency versions
+
+ master
 ### `0.2.13`
 - [#105](https://github.com/codecov/codecov-ruby/pull/105) Remove unnecessary dependency for ruby standard gem
 - [#110](https://github.com/codecov/codecov-ruby/pull/110) Fix GitHub Actions

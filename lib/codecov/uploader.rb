@@ -6,10 +6,9 @@ require 'net/http'
 require 'simplecov'
 require 'zlib'
 
-0.2.13
-class SimpleCov::Formatter::Codecov
-  VERSION = '0.2.13'
+require_relative 'version'
 
+class Codecov::Uploader
   ### CIs
   RECOGNIZED_CIS = [
     APPVEYOR = 'Appveyor CI',
@@ -33,7 +32,25 @@ class SimpleCov::Formatter::Codecov
     WERCKER = 'Wercker CI'
   ].freeze
 
-  def display_header
+  def self.upload(report, disable_net_blockers = true)
+    net_blockers(:off) if disable_net_blockers
+
+    display_header
+    ci = detect_ci
+    response = upload_to_codecov(ci, report)
+    if response == false
+      report['result'] = { 'uploaded' => false }
+      return report
+    end
+
+    report['result'] = JSON.parse(response)
+    handle_report_response(report)
+
+    net_blockers(:on) if disable_net_blockers
+    report
+  end
+
+  def self.display_header
     puts [
       '',
       '  _____          _',
@@ -42,12 +59,12 @@ class SimpleCov::Formatter::Codecov
       '| |    / _ \ / _\`|/ _ \/ __/ _ \ \ / /',
       '| |___| (_) | (_| |  __/ (_| (_) \ V /',
       ' \_____\___/ \__,_|\___|\___\___/ \_/',
-      "                               Ruby-#{VERSION}",
+      "                               Ruby-#{::Codecov::VERSION}",
       ''
     ].join("\n")
   end
 
-  def detect_ci
+  def self.detect_ci
     ci = if (ENV['CI'] == 'True') && (ENV['APPVEYOR'] == 'True')
            APPVEYOR
          elsif !ENV['TF_BUILD'].nil?
@@ -97,11 +114,11 @@ class SimpleCov::Formatter::Codecov
     ci
   end
 
-  def build_params(ci)
+  def self.build_params(ci)
     params = {
       'token' => ENV['CODECOV_TOKEN'],
       'flags' => ENV['CODECOV_FLAG'] || ENV['CODECOV_FLAGS'],
-      'package' => "ruby-#{VERSION}"
+      'package' => "ruby-#{::Codecov::VERSION}"
     }
 
     case ci
@@ -163,16 +180,29 @@ class SimpleCov::Formatter::Codecov
       params[:commit] = ENV['CIRCLE_SHA1']
     when CODEBUILD
       # https://docs.aws.amazon.com/codebuild/latest/userguide/build-env-ref-env-vars.html
+      # To use CodePipeline as CodeBuild source which sets no branch and slug variable:
+      #
+      # 1. Set up CodeStarSourceConnection as source action provider
+      #    https://docs.aws.amazon.com/codepipeline/latest/userguide/action-reference-CodestarConnectionSource.html
+      # 2. Add a Namespace to your source action. Example: "CodeStar".
+      #    https://docs.aws.amazon.com/codepipeline/latest/userguide/reference-variables.html#reference-variables-concepts-namespaces
+      # 3. Add these environment variables to your CodeBuild action:
+      #   - CODESTAR_BRANCH_NAME: #{CodeStar.BranchName}
+      #   - CODESTAR_FULL_REPOSITORY_NAME: #{CodeStar.FullRepositoryName} (optional)
+      #     https://docs.aws.amazon.com/codepipeline/latest/userguide/action-reference-CodeBuild.html#action-reference-CodeBuild-config
+      #
+      # PRs are not supported with CodePipeline.
       params[:service] = 'codebuild'
-      params[:branch] = ENV['CODEBUILD_WEBHOOK_HEAD_REF'].split('/')[2]
+      params[:branch] = ENV['CODEBUILD_WEBHOOK_HEAD_REF']&.split('/')&.[](2) || ENV['CODESTAR_BRANCH_NAME']
       params[:build] = ENV['CODEBUILD_BUILD_ID']
       params[:commit] = ENV['CODEBUILD_RESOLVED_SOURCE_VERSION']
       params[:job] = ENV['CODEBUILD_BUILD_ID']
-      params[:slug] = ENV['CODEBUILD_SOURCE_REPO_URL'].match(/.*github.com\/(?<slug>.*).git/)['slug']
-      params[:pr] = if ENV['CODEBUILD_SOURCE_VERSION']
+      params[:slug] = ENV['CODEBUILD_SOURCE_REPO_URL']&.match(/.*github.com\/(?<slug>.*).git/)&.[]('slug') || ENV['CODESTAR_FULL_REPOSITORY_NAME']
+      params[:pr] = if ENV['CODEBUILD_SOURCE_VERSION'] && !(ENV['CODEBUILD_INITIATOR'] =~ /codepipeline/)
                       matched = ENV['CODEBUILD_SOURCE_VERSION'].match(%r{pr/(?<pr>.*)})
                       matched.nil? ? ENV['CODEBUILD_SOURCE_VERSION'] : matched['pr']
                     end
+      params[:build_url] = ENV['CODEBUILD_BUILD_URL']
     when CODESHIP
       # https://www.codeship.io/documentation/continuous-integration/set-environment-variables/
       params[:service] = 'codeship'
@@ -307,7 +337,7 @@ class SimpleCov::Formatter::Codecov
     params
   end
 
-  def retry_request(req, https)
+  def self.retry_request(req, https)
     retries = 3
     begin
       response = https.request(req)
@@ -334,17 +364,7 @@ class SimpleCov::Formatter::Codecov
     response
   end
 
-  def create_report(report)
-    result = {
-      'meta' => {
-        'version' => 'codecov-ruby/v' + VERSION
-      }
-    }
-    result.update(result_to_codecov(report))
-    result
-  end
-
-  def gzip_report(report)
+  def self.gzip_report(report)
     puts [green('==>'), 'Gzipping contents'].join(' ')
 
     io = StringIO.new
@@ -355,7 +375,7 @@ class SimpleCov::Formatter::Codecov
     io.string
   end
 
-  def upload_to_codecov(ci, report)
+  def self.upload_to_codecov(ci, report)
     url = ENV['CODECOV_URL'] || 'https://codecov.io'
     is_enterprise = url != 'https://codecov.io'
 
@@ -384,7 +404,7 @@ class SimpleCov::Formatter::Codecov
     response || upload_to_v2(url, gzipped_report, query, query_without_token)
   end
 
-  def upload_to_v4(url, report, query, query_without_token)
+  def self.upload_to_v4(url, report, query, query_without_token)
     uri = URI.parse(url.chomp('/') + '/upload/v4')
     https = Net::HTTP.new(uri.host, uri.port)
     https.use_ssl = !url.match(/^https/).nil?
@@ -439,7 +459,7 @@ class SimpleCov::Formatter::Codecov
     end
   end
 
-  def upload_to_v2(url, report, query, query_without_token)
+  def self.upload_to_v2(url, report, query, query_without_token)
     uri = URI.parse(url.chomp('/') + '/upload/v2')
     https = Net::HTTP.new(uri.host, uri.port)
     https.use_ssl = !url.match(/^https/).nil?
@@ -461,19 +481,56 @@ class SimpleCov::Formatter::Codecov
     res&.body
   end
 
-  def handle_report_response(report)
+  def self.handle_report_response(report)
     if report['result']['uploaded']
       puts "    View reports at #{report['result']['url']}"
     else
       puts red('    X> Failed to upload coverage reports')
     end
   end
-require_relative 'codecov/formatter'
-require_relative 'codecov/uploader'
-master
-class SimpleCov::Formatter::Codecov
-  def format(result, disable_net_blockers = true)
-    report = Codecov::SimpleCov::Formatter.new.format(result)
-    Codecov::Uploader.upload(report, disable_net_blockers)
+
+  private
+
+  # Toggle VCR and WebMock on or off
+  #
+  # @param switch Toggle switch for Net Blockers.
+  # @return [Boolean]
+  def self.net_blockers(switch)
+    throw 'Only :on or :off' unless %i[on off].include? switch
+
+    if defined?(VCR)
+      case switch
+      when :on
+        VCR.turn_on!
+      when :off
+        VCR.turn_off!(ignore_cassettes: true)
+      end
+    end
+
+    if defined?(WebMock)
+      # WebMock on by default
+      # VCR depends on WebMock 1.8.11; no method to check whether enabled.
+      case switch
+      when :on
+        WebMock.enable!
+      when :off
+        WebMock.disable!
+      end
+    end
+
+    true
+  end
+
+  # Convenience color methods
+  def self.black(str)
+    str.nil? ? '' : "\e[30m#{str}\e[0m"
+  end
+
+  def self.red(str)
+    str.nil? ? '' : "\e[31m#{str}\e[0m"
+  end
+
+  def self.green(str)
+    str.nil? ? '' : "\e[32m#{str}\e[0m"
   end
 end

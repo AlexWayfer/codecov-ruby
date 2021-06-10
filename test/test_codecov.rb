@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
-require 'helper'
+require_relative 'helper'
 
 class TestCodecov < Minitest::Test
-  CI = SimpleCov::Formatter::Codecov.new.detect_ci
+  CI = Codecov::Uploader.detect_ci
 
   REALENV =
-    if CI == SimpleCov::Formatter::Codecov::CIRCLE
+    if CI == Codecov::Uploader::CIRCLE
       {
         'CIRCLECI' => ENV['CIRCLECI'],
         'CIRCLE_BUILD_NUM' => ENV['CIRCLE_BUILD_NUM'],
@@ -18,7 +18,7 @@ class TestCodecov < Minitest::Test
         'CIRCLE_BRANCH' => ENV['CIRCLE_BRANCH'],
         'CIRCLE_SHA1' => ENV['CIRCLE_SHA1']
       }
-    elsif CI == SimpleCov::Formatter::Codecov::GITHUB
+    elsif CI == Codecov::Uploader::GITHUB
       {
         'GITHUB_ACTIONS' => ENV['GITHUB_ACTIONS'],
         'GITHUB_HEAD_REF' => ENV['GITHUB_HEAD_REF'],
@@ -27,7 +27,7 @@ class TestCodecov < Minitest::Test
         'GITHUB_RUN_ID' => ENV['GITHUB_RUN_ID'],
         'GITHUB_SHA' => ENV['GITHUB_SHA']
       }
-    elsif CI == SimpleCov::Formatter::Codecov::TRAVIS
+    elsif CI == Codecov::Uploader::TRAVIS
       {
         'TRAVIS' => ENV['TRAVIS'],
         'TRAVIS_BRANCH' => ENV['TRAVIS_BRANCH'],
@@ -47,7 +47,7 @@ class TestCodecov < Minitest::Test
 
   def test_defined
     assert defined?(SimpleCov::Formatter::Codecov)
-    assert defined?(SimpleCov::Formatter::Codecov::VERSION)
+    assert defined?(::Codecov::VERSION)
   end
 
   def stub_file(filename, coverage)
@@ -66,10 +66,10 @@ class TestCodecov < Minitest::Test
     WebMock.enable!
     formatter = SimpleCov::Formatter::Codecov.new
     result = stub('SimpleCov::Result', files: [
-                    stub_file('/path/lib/something.rb', [1, 0, 0, nil, 1, nil]),
-                    stub_file('/path/lib/somefile.rb', [1, nil, 1, 1, 1, 0, 0, nil, 1, nil])
+                    stub_file('path/lib/something.rb', [1, 0, 0, nil, 1, nil]),
+                    stub_file('path/lib/somefile.rb', [1, nil, 1, 1, 1, 0, 0, nil, 1, nil])
                   ])
-    SimpleCov.stubs(:root).returns('/path')
+    SimpleCov.stubs(:root).returns('path')
     success_stubs if success
     data = formatter.format(result, false)
     puts data
@@ -96,7 +96,7 @@ class TestCodecov < Minitest::Test
   def assert_successful_upload(data)
     assert_equal(data['result']['uploaded'], true)
     assert_equal(data['result']['message'], 'Coverage reports upload successfully')
-    assert_equal(data['meta']['version'], 'codecov-ruby/v' + SimpleCov::Formatter::Codecov::VERSION)
+    assert_equal(data['meta']['version'], 'codecov-ruby/v' + ::Codecov::VERSION)
     assert_equal(data['coverage'].to_json, {
       'lib/something.rb' => [nil, 1, 0, 0, nil, 1, nil],
       'lib/somefile.rb' => [nil, 1, nil, 1, 1, 1, 0, 0, nil, 1, nil]
@@ -169,10 +169,14 @@ class TestCodecov < Minitest::Test
     ENV['CIRCLECI'] = nil
     ENV['CODEBUILD_CI'] = nil
     ENV['CODEBUILD_BUILD_ID'] = nil
+    ENV['CODEBUILD_BUILD_URL'] = nil
+    ENV['CODEBUILD_INITIATOR'] = nil
     ENV['CODEBUILD_RESOLVED_SOURCE_VERSION'] = nil
     ENV['CODEBUILD_WEBHOOK_HEAD_REF'] = nil
     ENV['CODEBUILD_SOURCE_VERSION'] = nil
     ENV['CODEBUILD_SOURCE_REPO_URL'] = nil
+    ENV['CODESTAR_BRANCH_NAME'] = nil
+    ENV['CODESTAR_FULL_REPOSITORY_NAME'] = nil
     ENV['CODECOV_ENV'] = nil
     ENV['CODECOV_SLUG'] = nil
     ENV['CODECOV_TOKEN'] = nil
@@ -639,6 +643,33 @@ class TestCodecov < Minitest::Test
     assert_equal('f881216b-b5c0-4eb1-8f21-b51887d1d506', result['params']['token'])
   end
 
+  def test_codebuild_codepipeline
+    ENV['CODEBUILD_CI'] = "true"
+    ENV['CODEBUILD_INITIATOR'] = "codepipeline/codepipeline-name"
+    ENV['CODEBUILD_BUILD_ID'] = "codebuild-project:458dq3q8-7354-4513-8702-ea7b9c81efb3"
+    ENV['CODEBUILD_BUILD_URL'] = "http://codebuild"
+    ENV['CODEBUILD_RESOLVED_SOURCE_VERSION'] = 'd653b934ed59c1a785cc1cc79d08c9aaa4eba73b'
+    ENV['CODEBUILD_WEBHOOK_HEAD_REF'] = nil
+    ENV['CODEBUILD_SOURCE_VERSION'] = 'arn:aws:s3:::bucket/codepipeline-name/SourceActionName/cf4IT8b'
+    ENV['CODEBUILD_SOURCE_REPO_URL'] = nil
+    # set CodeStarSourceConnection namespace and CodeBuild variables manually in CodePipeline, see source code comments
+    ENV['CODESTAR_BRANCH_NAME'] = 'branch-name'
+    ENV['CODESTAR_FULL_REPOSITORY_NAME'] = 'owner/repo'
+    ENV['CODECOV_TOKEN'] = 'f881216b-b5c0-4eb1-8f21-b51887d1d506'
+
+    result = upload
+
+    assert_equal("codebuild", result['params'][:service])
+    assert_equal("d653b934ed59c1a785cc1cc79d08c9aaa4eba73b", result['params'][:commit])
+    assert_equal("codebuild-project:458dq3q8-7354-4513-8702-ea7b9c81efb3", result['params'][:build])
+    assert_equal("http://codebuild", result['params'][:build_url])
+    assert_equal("codebuild-project:458dq3q8-7354-4513-8702-ea7b9c81efb3", result['params'][:job])
+    assert_equal("owner/repo", result['params'][:slug])
+    assert_equal("branch-name", result['params'][:branch])
+    assert_nil(result['params'][:pr])
+    assert_equal('f881216b-b5c0-4eb1-8f21-b51887d1d506', result['params']['token'])
+  end
+
   def test_codebuild_source_version_is_other_than_pr_number
     ENV['CODEBUILD_CI'] = 'true'
     ENV['CODEBUILD_BUILD_ID'] = 'codebuild-project:458dq3q8-7354-4513-8702-ea7b9c81efb3'
@@ -665,10 +696,10 @@ class TestCodecov < Minitest::Test
 
     formatter = SimpleCov::Formatter::Codecov.new
     result = stub('SimpleCov::Result', files: [
-                    stub_file('/path/lib/something.rb', []),
-                    stub_file('/path/path/lib/path_somefile.rb', [])
+                    stub_file('path/lib/something.rb', []),
+                    stub_file('path/path/lib/path_somefile.rb', [])
                   ])
-    SimpleCov.stubs(:root).returns('/path')
+    SimpleCov.stubs(:root).returns('path')
     data = formatter.format(result)
     puts data
     puts data['params']

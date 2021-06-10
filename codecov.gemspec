@@ -1,26 +1,33 @@
 # frozen_string_literal: true
 
+require_relative 'lib/codecov/version'
+
 Gem::Specification.new do |s|
   s.name                  = 'codecov'
-  s.authors               = ['codecov']
-  s.description           = 'hosted code coverage'
+  s.authors               = ['Steve Peak', 'Tom Hu']
+  s.summary               = 'Hosted code coverage'
+  s.description           = 'Hosted code coverage Ruby reporter.'
   s.email                 = ['hello@codecov.io']
-  s.files                 = ['lib/codecov.rb']
+  s.files                 = ['lib/codecov.rb', 'lib/codecov/formatter.rb', 'lib/codecov/uploader.rb', 'lib/codecov/version.rb']
   s.homepage              = 'https://github.com/codecov/codecov-ruby'
   s.license               = 'MIT'
   s.platform              = Gem::Platform::RUBY
+ 0.2.13
   s.require_paths         = ['lib']
   s.required_ruby_version = '>=2.4'
   s.summary               = 'hosted code coverage ruby/rails reporter'
   s.test_files            = ['test/test_codecov.rb']
   s.version               = '0.2.13'
 
-  s.add_dependency 'simplecov'
+  s.required_ruby_version = '>= 2.4', '< 4'
+  s.version               = ::Codecov::VERSION
+ master
+  s.add_dependency 'simplecov', '>= 0.15', '< 0.22'
 
-  s.add_development_dependency 'minitest'
-  s.add_development_dependency 'minitest-ci'
-  s.add_development_dependency 'mocha'
-  s.add_development_dependency 'rake'
-  s.add_development_dependency 'rubocop'
-  s.add_development_dependency 'webmock'
+  s.add_development_dependency 'minitest', '~> 5.0'
+  s.add_development_dependency 'minitest-ci', '~> 3.0'
+  s.add_development_dependency 'mocha', '~> 1.0'
+  s.add_development_dependency 'rake', '~> 13.0'
+  s.add_development_dependency 'rubocop', '~> 1.0'
+  s.add_development_dependency 'webmock', '~> 3.0'
 end
