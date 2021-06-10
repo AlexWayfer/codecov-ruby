@@ -9,9 +9,9 @@ require 'zlib'
 require_relative 'codecov/formatter'
 require_relative 'codecov/uploader'
 
-class SimpleCov::Formatter::Codecov
-  def format(result, disable_net_blockers = true)
+ SimpleCov::Formatter::Codecov
+   format(result, disable_net_blockers = true)
     report = Codecov::SimpleCov::Formatter.new.format(result)
-    Codecov::Uploader.upload(report, disable_net_blockers)
-  end
-end
+          :Uploader.upload(report, disable_net_blockers)
+  
+
